@@ -390,50 +390,8 @@ export default function DroneMonitoringSystem() {
       interval = setInterval(() => {
         setSimStep(prevStep => {
           if (prevStep >= optimizedRoute.length - 1) {
-            // Mission Complete! Save to logbook
-            setIsSimulating(false);
-            const finishedDrone = DRONE_FLEET.find(d => d.id === selectedDroneId)?.name || "Agri-Hawk V4";
-            const newLog: FlightLog = {
-              id: `log-${Date.now()}`,
-              droneName: finishedDrone,
-              date: new Date().toLocaleString(),
-              durationMins: Math.floor(optimizedRoute.length * 0.3),
-              coveragePercent: missionType === "sweep" ? 100 : missionType === "boundary" ? 75 : 45,
-              averageNdvi: yieldData.avgNdvi,
-              anomalyDetected: missionType === "hotspots" ? "Spot Spray Mission Executed on target sectors." : "Fully scanned. Anomalies locked.",
-              pathCoordinates: optimizedRoute,
-              telemetryData: Array.from({ length: optimizedRoute.length }, (_, idx) => ({
-                time: idx,
-                altitude: flightAltitude,
-                battery: Math.max(10, 100 - idx * 3.5),
-                speed: flightSpeed
-              }))
-            };
-            setFlightLogs(prev => [newLog, ...prev]);
-            setSelectedLogId(newLog.id);
-            alert(`🎉 MISSION COMPLETE! ${finishedDrone} returned to home (RTH) safely. Flight log appended to index.`);
-            return 0;
+            return prevStep;
           }
-
-          // Compute battery drainage and scanning progress
-          const percentage = (prevStep / (optimizedRoute.length - 1)) * 100;
-          setSimCoverage(Math.floor(percentage));
-          setSimBattery(Math.max(15, Math.floor(100 - prevStep * (1.2 + (15 - flightSpeed) * 0.05))));
-          setSimTimeLeft(Math.max(2, Math.floor(30 - prevStep * 0.4)));
-          
-          // Live telemetry
-          const heightVariance = Math.sin(prevStep * 0.6) * 0.8;
-          setSimAltitude(parseFloat((flightAltitude + heightVariance).toFixed(1)));
-
-          // Trigger simulated telemetry updates onto selected cell
-          const pt = optimizedRoute[prevStep];
-          const col = Math.min(9, Math.max(0, Math.floor(pt.x / 10)));
-          const row = Math.min(9, Math.max(0, Math.floor(pt.y / 10)));
-          const cell = gridCells.find(c => c.row === row && c.col === col);
-          if (cell) {
-            setSelectedCell(cell);
-          }
-
           return prevStep + 1;
         });
       }, 400);
@@ -441,7 +399,58 @@ export default function DroneMonitoringSystem() {
       clearInterval(interval);
     }
     return () => clearInterval(interval);
-  }, [isSimulating, optimizedRoute]);
+  }, [isSimulating, optimizedRoute.length]);
+
+  // Handle simulation step changes and side effects
+  useEffect(() => {
+    if (!isSimulating || optimizedRoute.length === 0) return;
+
+    if (simStep >= optimizedRoute.length - 1) {
+      // Mission Complete! Save to logbook
+      setIsSimulating(false);
+      const finishedDrone = DRONE_FLEET.find(d => d.id === selectedDroneId)?.name || "Agri-Hawk V4";
+      const newLog: FlightLog = {
+        id: `log-${Date.now()}`,
+        droneName: finishedDrone,
+        date: new Date().toLocaleString(),
+        durationMins: Math.floor(optimizedRoute.length * 0.3),
+        coveragePercent: missionType === "sweep" ? 100 : missionType === "boundary" ? 75 : 45,
+        averageNdvi: yieldData.avgNdvi,
+        anomalyDetected: missionType === "hotspots" ? "Spot Spray Mission Executed on target sectors." : "Fully scanned. Anomalies locked.",
+        pathCoordinates: optimizedRoute,
+        telemetryData: Array.from({ length: optimizedRoute.length }, (_, idx) => ({
+          time: idx,
+          altitude: flightAltitude,
+          battery: Math.max(10, 100 - idx * 3.5),
+          speed: flightSpeed
+        }))
+      };
+      setFlightLogs(prev => [newLog, ...prev]);
+      setSelectedLogId(newLog.id);
+      return;
+    }
+
+    // Compute battery drainage and scanning progress
+    const percentage = (simStep / (optimizedRoute.length - 1)) * 100;
+    setSimCoverage(Math.floor(percentage));
+    setSimBattery(Math.max(15, Math.floor(100 - simStep * (1.2 + (15 - flightSpeed) * 0.05))));
+    setSimTimeLeft(Math.max(2, Math.floor(30 - simStep * 0.4)));
+    
+    // Live telemetry
+    const heightVariance = Math.sin(simStep * 0.6) * 0.8;
+    setSimAltitude(parseFloat((flightAltitude + heightVariance).toFixed(1)));
+
+    // Trigger simulated telemetry updates onto selected cell
+    const pt = optimizedRoute[simStep];
+    if (pt) {
+      const col = Math.min(9, Math.max(0, Math.floor(pt.x / 10)));
+      const row = Math.min(9, Math.max(0, Math.floor(pt.y / 10)));
+      const cell = gridCells.find(c => c.row === row && c.col === col);
+      if (cell) {
+        setSelectedCell(cell);
+      }
+    }
+  }, [simStep, isSimulating, optimizedRoute, flightAltitude, flightSpeed, selectedDroneId, missionType, yieldData.avgNdvi]);
 
   const handleStartSimulation = () => {
     if (optimizedRoute.length === 0) return;

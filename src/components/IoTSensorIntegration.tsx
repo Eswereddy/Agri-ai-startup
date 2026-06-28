@@ -333,9 +333,22 @@ export default function IoTSensorIntegration() {
   // Live telemetry fluctuating every few seconds
   useEffect(() => {
     const timer = setInterval(() => {
-      // Fluctuating values slightly
-      setSensors(prevSensors =>
-        prevSensors.map(sensor => {
+      // Create variables to store updates that we will apply AFTER setSensors
+      let nextPumpState: "on" | "off" | null = null;
+      let nextPumpFlowRate: number | null = null;
+      let newAlerts: Array<{
+        sensorName: string;
+        sensorType: string;
+        sensorLabel: string;
+        sensorUnit: string;
+        sensorLocation: string;
+        newValue: number;
+        boundaryViolated: string;
+        severity: "warning" | "critical";
+      }> = [];
+
+      setSensors(prevSensors => {
+        const updatedSensors = prevSensors.map(sensor => {
           let delta = (Math.random() - 0.5) * 1.5;
           if (sensor.type === "light_intensity") {
             delta = (Math.random() - 0.5) * 1200;
@@ -350,11 +363,11 @@ export default function IoTSensorIntegration() {
             const minMoisture = thresholds.soil_moisture.min;
             if (pumpMode === "auto") {
               if (newValue < minMoisture) {
-                setPumpState("on");
-                setPumpFlowRate(45); // Liters/min
+                nextPumpState = "on";
+                nextPumpFlowRate = 45; // Liters/min
               } else if (newValue >= minMoisture + 8) {
-                setPumpState("off");
-                setPumpFlowRate(0);
+                nextPumpState = "off";
+                nextPumpFlowRate = 0;
               }
             }
           }
@@ -364,24 +377,15 @@ export default function IoTSensorIntegration() {
           if (limits) {
             if (newValue < limits.min || newValue > limits.max) {
               const boundaryViolated = newValue < limits.min ? "dropped below minimum limit" : "exceeded maximum limit";
-              // Check if alert already exists recently to avoid spam
-              setNotifications(prev => {
-                const recentMatch = prev.some(n => n.sensorLabel === sensor.name && !n.resolved);
-                if (!recentMatch) {
-                  return [
-                    {
-                      id: `live-alert-${Date.now()}`,
-                      timestamp: "Just Now",
-                      sensorLabel: sensor.name,
-                      sensorType: sensor.type,
-                      severity: newValue < limits.min * 0.8 || newValue > limits.max * 1.2 ? "critical" : "warning",
-                      message: `${sensor.label} of ${newValue} ${sensor.unit} at ${sensor.location} ${boundaryViolated}!`,
-                      resolved: false
-                    },
-                    ...prev
-                  ];
-                }
-                return prev;
+              newAlerts.push({
+                sensorName: sensor.name,
+                sensorType: sensor.type,
+                sensorLabel: sensor.label,
+                sensorUnit: sensor.unit,
+                sensorLocation: sensor.location,
+                newValue,
+                boundaryViolated,
+                severity: newValue < limits.min * 0.8 || newValue > limits.max * 1.2 ? "critical" : "warning"
               });
             }
           }
@@ -390,8 +394,46 @@ export default function IoTSensorIntegration() {
             ...sensor,
             currentValue: newValue
           };
-        })
-      );
+        });
+
+        // Safe async state execution outside of render or state transitions
+        if (nextPumpState !== null) {
+          const targetPumpState = nextPumpState;
+          const targetPumpFlowRate = nextPumpFlowRate ?? 0;
+          setTimeout(() => {
+            setPumpState(targetPumpState);
+            setPumpFlowRate(targetPumpFlowRate);
+          }, 0);
+        }
+
+        if (newAlerts.length > 0) {
+          setTimeout(() => {
+            setNotifications(prev => {
+              let updatedPrev = [...prev];
+              newAlerts.forEach(alertData => {
+                const recentMatch = updatedPrev.some(n => n.sensorLabel === alertData.sensorName && !n.resolved);
+                if (!recentMatch) {
+                  updatedPrev = [
+                    {
+                      id: `live-alert-${Date.now()}-${Math.random()}`,
+                      timestamp: "Just Now",
+                      sensorLabel: alertData.sensorName,
+                      sensorType: alertData.sensorType,
+                      severity: alertData.severity,
+                      message: `${alertData.sensorLabel} of ${alertData.newValue} ${alertData.sensorUnit} at ${alertData.sensorLocation} ${alertData.boundaryViolated}!`,
+                      resolved: false
+                    },
+                    ...updatedPrev
+                  ];
+                }
+              });
+              return updatedPrev;
+            });
+          }, 0);
+        }
+
+        return updatedSensors;
+      });
     }, 4500);
 
     return () => clearInterval(timer);

@@ -1,0 +1,6 @@
+{
+  "name": "AgriConnect AI",
+  "description": "An advanced agricultural ecosystem and AI co-pilot connecting farmers, experts, buyers, logistics providers, financial institutions, and government agencies.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
